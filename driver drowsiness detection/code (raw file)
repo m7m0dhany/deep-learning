@@ -1,0 +1,170 @@
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as  plt
+import tensorflow as tf
+from tensorflow import keras
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import classification_report
+import seaborn as sns
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.layers import BatchNormalization
+from tensorflow.keras.layers import GlobalAveragePooling2D
+from tensorflow.keras.utils import Sequence
+from tensorflow.keras.losses import SparseCategoricalCrossentropy
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, TimeDistributed, LSTM
+from tensorflow.keras.models import Model, Sequential
+from tensorflow.keras.optimizers import Adam, SGD
+from collections import Counter
+
+!pip install split-folders
+
+import splitfolders
+data_dir = '/kaggle/input/driver-drowsiness-dataset-ddd/Driver Drowsiness Dataset (DDD)'
+output_dir = '/kaggle/working/splitted_Data'
+splitfolders.ratio(data_dir, output=output_dir, seed=1337, ratio=(.8, 0.15, 0.05))
+
+train_dir = "/kaggle/working/splitted_Data/train"
+test_dir = "/kaggle/working/splitted_Data/test"
+val_dir = "/kaggle/working/splitted_Data/val"
+
+train_datagen = ImageDataGenerator(rescale=1./255)
+test_datagen = ImageDataGenerator(rescale=1./255)
+val_datagen = ImageDataGenerator(rescale=1./255)
+
+train_batches = train_datagen.flow_from_directory(
+    train_dir,
+    target_size=(128, 128),
+    batch_size=16,
+    class_mode='binary',
+    shuffle=True
+)
+
+test_batches = test_datagen.flow_from_directory(
+    test_dir,
+    target_size=(128, 128),
+    batch_size=16,
+    class_mode='binary' ,
+    shuffle=True
+)
+
+val_batches = val_datagen.flow_from_directory(
+    val_dir,
+    target_size=(128, 128),
+    batch_size=16,
+    class_mode='binary',
+    shuffle=True
+)
+
+images, labels = next(train_batches)
+print(f"Pixels of the first image after Normalization: \n\n{images[3]}")
+plt.imshow(images[3])
+plt.show()
+
+fig, axes = plt.subplots(8, 4, figsize=(15, 30))
+class_indices = train_batches.class_indices
+
+for i in range(8):
+    images, labels = next(train_batches)
+    for j in range(4):
+        
+        ax = axes[i, j]
+        ax.imshow(images[j])
+        ax.axis('off')
+        label = int(labels[j])  
+        label_name = list(class_indices.keys())[list(class_indices.values()).index(label)]
+        ax.set_title(f'{label_name} ({label})')
+
+plt.tight_layout()
+plt.show()
+
+
+image_size = (128, 128)
+sequence_length = 5
+
+model = Sequential([
+    TimeDistributed(Conv2D(8, (3,3), activation='relu', padding='same'), input_shape=(sequence_length, image_size[0], image_size[1], 3)),
+    TimeDistributed(BatchNormalization()),  
+    TimeDistributed(MaxPooling2D(pool_size=(2,2))),
+
+    TimeDistributed(Conv2D(16, (3,3), activation='relu', padding='same')),
+    TimeDistributed(BatchNormalization()),
+    TimeDistributed(MaxPooling2D(pool_size=(2,2))),
+
+    TimeDistributed(Conv2D(32, (3,3), activation='relu', padding='same')),
+    TimeDistributed(BatchNormalization()),
+    TimeDistributed(MaxPooling2D(pool_size=(2,2))),
+
+    TimeDistributed(GlobalAveragePooling2D()),  
+    LSTM(16, return_sequences=False),  
+    Dropout(0.3),
+
+    Dense(8, activation='relu'),  
+    Dropout(0.3),
+    Dense(1, activation='sigmoid')  
+])  
+
+model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=['accuracy'])
+
+model.summary()
+
+
+class DataGenerator(Sequence):
+    def __init__(self, generator, sequence_length, batch_size):
+        self.generator = generator
+        self.sequence_length = sequence_length
+        self.batch_size = batch_size
+
+    def __len__(self):
+        return len(self.generator) // self.batch_size
+
+    def __getitem__(self, index):
+        X_seq, y_seq = [], []
+        images, labels = [], []
+        
+        for _ in range(self.batch_size):
+            batch_images, batch_labels = next(self.generator)
+            for img, label in zip(batch_images, batch_labels):
+                images.append(img)
+                labels.append(label)
+                if len(images) == self.sequence_length:
+                    X_seq.append(np.array(images))
+                    y_seq.append(labels[-1])
+                    images.pop(0)
+        
+        return np.array(X_seq), np.array(y_seq)
+
+
+acc = history.history['accuracy']
+val_acc = history.history['val_accuracy']
+loss = history.history['loss']
+val_loss = history.history['val_loss']
+epochs_range = range(len(acc))
+
+plt.figure(figsize=(12, 5))
+
+# Accuracy Plot
+plt.subplot(1, 2, 1)
+plt.plot(epochs_range, acc, label="Training Accuracy", color="blue", marker="o", linestyle="-")
+plt.plot(epochs_range, val_acc, label="Validation Accuracy", color="green", marker="s", linestyle="--")
+plt.legend()
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.title("Training & Validation Accuracy")
+plt.grid(True)
+
+# Loss Plot
+plt.subplot(1, 2, 2)
+plt.plot(epochs_range, loss, label="Training Loss", color="red", marker="o", linestyle="-")
+plt.plot(epochs_range, val_loss, label="Validation Loss", color="orange", marker="s", linestyle="--")
+plt.legend()
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("Training & Validation Loss")
+plt.grid(True)
+
+plt.show()
+
+
